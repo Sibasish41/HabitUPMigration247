@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const subscriptionController = require('../controllers/subscriptionController');
-const { authMiddleware } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 const { adminMiddleware } = require('../middleware/admin');
 const { validateSubscription, validateSubscriptionUpdate } = require('../middleware/validation');
 
@@ -10,7 +10,7 @@ router.get('/plans', subscriptionController.getSubscriptionPlans);
 router.get('/plans/:id', subscriptionController.getSubscriptionPlanById);
 
 // User routes (require authentication)
-router.use(authMiddleware);
+router.use(authenticateToken);
 
 // Get user's current subscription
 router.get('/current', subscriptionController.getUserSubscription);

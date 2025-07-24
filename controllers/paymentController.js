@@ -1,4 +1,4 @@
-const { Payment, Meeting, Subscription, User } = require('../models');
+const { Payment, Meeting, Subscription, User, sequelize } = require('../models');
 const { ApiError } = require('../middleware/errorHandler');
 const { createOrder, verifyPayment } = require('../utils/paymentService');
 const { Op } = require('sequelize');
@@ -49,6 +49,11 @@ class PaymentController {
     } catch (error) {
       next(error);
     }
+  }
+
+  // Verify payment (alias for verifyPaymentSignature)
+  async verifyPayment(req, res, next) {
+    return this.verifyPaymentSignature(req, res, next);
   }
 
   // Verify payment
@@ -432,6 +437,187 @@ class PaymentController {
         refundAmount: payload.amount / 100, // Convert from paise to rupees
         refundedAt: new Date()
       });
+    }
+  }
+
+  // Get subscription status
+  async getSubscriptionStatus(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      
+      const activeSubscription = await Subscription.findOne({
+        where: {
+          userId,
+          status: 'ACTIVE'
+        },
+        include: [{
+          model: Payment,
+          as: 'payments',
+          where: { paymentStatus: 'COMPLETED' },
+          order: [['createdAt', 'DESC']],
+          limit: 1
+        }]
+      });
+
+      res.json({
+        success: true,
+        data: {
+          hasActiveSubscription: !!activeSubscription,
+          subscription: activeSubscription
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Cancel subscription
+  async cancelSubscription(req, res, next) {
+    try {
+      const userId = req.user.userId;
+      const { reason } = req.body;
+      
+      const subscription = await Subscription.findOne({
+        where: {
+          userId,
+          status: 'ACTIVE'
+        }
+      });
+
+      if (!subscription) {
+        return next(new ApiError('No active subscription found', 404));
+      }
+
+      await subscription.update({
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancellationReason: reason
+      });
+
+      res.json({
+        success: true,
+        message: 'Subscription cancelled successfully',
+        data: subscription
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Admin: Process refund
+  async processRefund(req, res, next) {
+    try {
+      const { paymentId } = req.params;
+      const { refundAmount, refundReason } = req.body;
+      
+      const payment = await Payment.findOne({
+        where: {
+          paymentId,
+          paymentStatus: 'COMPLETED'
+        }
+      });
+
+      if (!payment) {
+        return next(new ApiError('Payment not found or not eligible for refund', 404));
+      }
+
+      const refundAmountFinal = refundAmount || payment.amount;
+
+      if (refundAmountFinal > payment.amount) {
+        return next(new ApiError('Refund amount cannot exceed payment amount', 400));
+      }
+
+      // Process refund through Razorpay (implement based on your payment service)
+      // const refundResult = await processRazorpayRefund(payment.razorpayPaymentId, refundAmountFinal);
+
+      await payment.update({
+        paymentStatus: 'REFUNDED',
+        refundAmount: refundAmountFinal,
+        refundReason,
+        refundedAt: new Date()
+      });
+
+      res.json({
+        success: true,
+        message: 'Refund processed successfully',
+        data: payment
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Admin: Get user payments
+  async getUserPayments(req, res, next) {
+    try {
+      const { userId } = req.params;
+      const { page = 1, limit = 10, status } = req.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const whereClause = { userId };
+      if (status) {
+        whereClause.paymentStatus = status;
+      }
+
+      const { count, rows: payments } = await Payment.findAndCountAll({
+        where: whereClause,
+        include: [{
+          model: User,
+          as: 'user',
+          attributes: ['userId', 'name', 'email']
+        }],
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit),
+        offset
+      });
+
+      res.json({
+        success: true,
+        data: {
+          payments,
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(count / parseInt(limit)),
+            totalPayments: count,
+            limit: parseInt(limit)
+          }
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Admin: Update payment status
+  async updatePaymentStatus(req, res, next) {
+    try {
+      const { paymentId } = req.params;
+      const { status, notes } = req.body;
+      
+      const validStatuses = ['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'CANCELLED'];
+      if (!validStatuses.includes(status)) {
+        return next(new ApiError('Invalid payment status', 400));
+      }
+
+      const payment = await Payment.findByPk(paymentId);
+      if (!payment) {
+        return next(new ApiError('Payment not found', 404));
+      }
+
+      const updateData = { paymentStatus: status };
+      if (notes) updateData.adminNotes = notes;
+      if (status === 'COMPLETED') updateData.paidAt = new Date();
+      if (status === 'REFUNDED') updateData.refundedAt = new Date();
+
+      await payment.update(updateData);
+
+      res.json({
+        success: true,
+        message: 'Payment status updated successfully',
+        data: payment
+      });
+    } catch (error) {
+      next(error);
     }
   }
 }

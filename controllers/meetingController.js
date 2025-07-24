@@ -758,6 +758,404 @@ const getMeetingAnalytics = async (req, res) => {
   }
 };
 
+// Additional methods needed by routes
+const getMyMeetings = getUserMeetings; // Alias
+const requestMeeting = createMeeting; // Alias
+const getMeetings = getUserMeetings; // Alias
+
+const getMeetingStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const meeting = await Meeting.findByPk(id, {
+      attributes: ['id', 'status', 'scheduledAt', 'actualStartTime', 'actualEndTime']
+    });
+
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        status: meeting.status,
+        scheduledAt: meeting.scheduledAt,
+        actualStartTime: meeting.actualStartTime,
+        actualEndTime: meeting.actualEndTime
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching meeting status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const acceptMeeting = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const meeting = await Meeting.findByPk(id);
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    // Check if user is the assigned doctor
+    const doctor = await Doctor.findOne({ where: { userId } });
+    if (!doctor || meeting.doctorId !== doctor.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only assigned doctor can accept meeting.'
+      });
+    }
+
+    await meeting.update({
+      status: 'confirmed'
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting accepted successfully',
+      data: meeting
+    });
+  } catch (error) {
+    console.error('Error accepting meeting:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const rejectMeeting = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const userId = req.user.id;
+
+    const meeting = await Meeting.findByPk(id);
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    // Check if user is the assigned doctor
+    const doctor = await Doctor.findOne({ where: { userId } });
+    if (!doctor || meeting.doctorId !== doctor.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only assigned doctor can reject meeting.'
+      });
+    }
+
+    await meeting.update({
+      status: 'rejected',
+      notes: reason ? `Rejected: ${reason}` : 'Meeting rejected by doctor'
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting rejected successfully',
+      data: meeting
+    });
+  } catch (error) {
+    console.error('Error rejecting meeting:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const rescheduleMeeting = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { scheduledAt, reason } = req.body;
+    const userId = req.user.id;
+
+    const meeting = await Meeting.findByPk(id);
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    // Check if user has permission to reschedule
+    const doctor = await Doctor.findOne({ where: { userId } });
+    const canReschedule = meeting.userId === userId || 
+                         (doctor && meeting.doctorId === doctor.id) ||
+                         req.user.role === 'admin';
+
+    if (!canReschedule) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // Check for conflicts with new time
+    const conflictingMeeting = await Meeting.findOne({
+      where: {
+        id: { [Op.ne]: id },
+        [Op.or]: [
+          { userId: meeting.userId },
+          { doctorId: meeting.doctorId }
+        ],
+        scheduledAt: {
+          [Op.between]: [
+            new Date(scheduledAt),
+            new Date(new Date(scheduledAt).getTime() + meeting.duration * 60000)
+          ]
+        },
+        status: {
+          [Op.in]: ['scheduled', 'confirmed', 'in_progress']
+        }
+      }
+    });
+
+    if (conflictingMeeting) {
+      return res.status(409).json({
+        success: false,
+        message: 'Meeting time conflicts with existing appointment'
+      });
+    }
+
+    await meeting.update({
+      scheduledAt: new Date(scheduledAt),
+      status: 'rescheduled',
+      notes: reason ? `Rescheduled: ${reason}` : 'Meeting rescheduled'
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting rescheduled successfully',
+      data: meeting
+    });
+  } catch (error) {
+    console.error('Error rescheduling meeting:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const addMeetingNotes = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const userId = req.user.id;
+
+    const meeting = await Meeting.findByPk(id);
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    // Check if user is the assigned doctor
+    const doctor = await Doctor.findOne({ where: { userId } });
+    if (!doctor || meeting.doctorId !== doctor.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only assigned doctor can add notes.'
+      });
+    }
+
+    const existingNotes = meeting.notes || '';
+    const timestamp = new Date().toISOString();
+    const newNotes = existingNotes ? 
+      `${existingNotes}\n\n[${timestamp}] ${notes}` : 
+      `[${timestamp}] ${notes}`;
+
+    await meeting.update({
+      notes: newNotes
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting notes added successfully',
+      data: meeting
+    });
+  } catch (error) {
+    console.error('Error adding meeting notes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const getAllMeetings = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+
+    const { 
+      page = 1, 
+      limit = 10, 
+      status, 
+      doctorId,
+      userId,
+      startDate,
+      endDate
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    let whereClause = {};
+    
+    if (status) whereClause.status = status;
+    if (doctorId) whereClause.doctorId = doctorId;
+    if (userId) whereClause.userId = userId;
+    
+    if (startDate && endDate) {
+      whereClause.scheduledAt = {
+        [Op.between]: [new Date(startDate), new Date(endDate)]
+      };
+    }
+
+    const { count, rows: meetings } = await Meeting.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: User,
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phoneNumber']
+        },
+        {
+          model: Doctor,
+          attributes: ['id', 'firstName', 'lastName', 'email', 'specialization']
+        }
+      ],
+      order: [['scheduledAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.status(200).json({
+      success: true,
+      data: meetings,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(count / limit),
+        totalItems: count,
+        itemsPerPage: parseInt(limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching all meetings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const deleteMeeting = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+
+    const meeting = await Meeting.findByPk(id);
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    await meeting.destroy();
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting meeting:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const updateMeetingStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+
+    const meeting = await Meeting.findByPk(id);
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meeting not found'
+      });
+    }
+
+    const updateData = { status };
+    if (notes) {
+      const timestamp = new Date().toISOString();
+      const existingNotes = meeting.notes || '';
+      updateData.notes = existingNotes ? 
+        `${existingNotes}\n\n[${timestamp}] Admin: ${notes}` : 
+        `[${timestamp}] Admin: ${notes}`;
+    }
+
+    await meeting.update(updateData);
+
+    res.status(200).json({
+      success: true,
+      message: 'Meeting status updated successfully',
+      data: meeting
+    });
+  } catch (error) {
+    console.error('Error updating meeting status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createMeeting,
   getUserMeetings,
@@ -767,5 +1165,17 @@ module.exports = {
   cancelMeeting,
   startMeeting,
   endMeeting,
-  getMeetingAnalytics
+  getMeetingAnalytics,
+  // Route aliases and additional methods
+  getMyMeetings,
+  requestMeeting,
+  getMeetings,
+  getMeetingStatus,
+  acceptMeeting,
+  rejectMeeting,
+  rescheduleMeeting,
+  addMeetingNotes,
+  getAllMeetings,
+  deleteMeeting,
+  updateMeetingStatus
 };

@@ -78,10 +78,47 @@ const requireDoctor = authorize(['DOCTOR_ACCESS']);
 // User management permissions
 const requireUserManagement = authorize(['MANAGE_USERS']);
 
+// Role-based authorization function (alias for requireRole from admin middleware)
+const authorizeRoles = (allowedRoles) => {
+  return (req, res, next) => {
+    try {
+      // Ensure user is authenticated first
+      if (!req.user) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const { userType, role } = req.user;
+      const userRoles = [userType, role].filter(Boolean).map(r => r.toLowerCase());
+      const allowedRolesLower = allowedRoles.map(r => r.toLowerCase());
+
+      // Check if user has any of the allowed roles
+      const hasPermission = allowedRolesLower.some(allowedRole => 
+        userRoles.includes(allowedRole)
+      );
+
+      if (!hasPermission) {
+        return res.status(403).json({ 
+          message: `Access denied. Required roles: ${allowedRoles.join(', ')}` 
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Role authorization error:', error);
+      return res.status(500).json({ message: 'Internal server error' });
+    }
+  };
+};
+
+// Alias for requireAdmin
+const isAdmin = requireAdmin;
+
 module.exports = {
   authenticateToken,
   authorize,
+  authorizeRoles,
   requireAdmin,
   requireDoctor,
-  requireUserManagement
+  requireUserManagement,
+  isAdmin
 };

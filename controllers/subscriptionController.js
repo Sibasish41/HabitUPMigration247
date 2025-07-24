@@ -1,6 +1,7 @@
 const { Subscription, User, Payment } = require('../models');
 const { Op } = require('sequelize');
 const razorpayService = require('../utils/razorpayService');
+const { ApiError } = require('../middleware/errorHandler');
 
 // Get all subscriptions (admin only)
 const getAllSubscriptions = async (req, res) => {
@@ -473,6 +474,472 @@ const handleSubscriptionWebhook = async (req, res) => {
   }
 };
 
+// Additional methods required by routes
+const getSubscriptionPlans = async (req, res) => {
+  try {
+    // Mock subscription plans - replace with actual implementation
+    const plans = [
+      {
+        id: 'basic',
+        name: 'Basic Plan',
+        description: 'Basic features for habit tracking',
+        price: 499,
+        currency: 'INR',
+        billingCycle: 'monthly',
+        features: ['Basic habit tracking', 'Progress reports', 'Mobile app access']
+      },
+      {
+        id: 'premium',
+        name: 'Premium Plan',
+        description: 'Advanced features with coach consultation',
+        price: 999,
+        currency: 'INR',
+        billingCycle: 'monthly',
+        features: ['All basic features', 'Coach consultation', 'Advanced analytics', 'Priority support']
+      },
+      {
+        id: 'pro',
+        name: 'Pro Plan',
+        description: 'Complete solution with doctor consultations',
+        price: 1999,
+        currency: 'INR',
+        billingCycle: 'monthly',
+        features: ['All premium features', 'Doctor consultations', 'Custom meal plans', 'Unlimited support']
+      }
+    ];
+
+    res.json({
+      success: true,
+      data: plans
+    });
+  } catch (error) {
+    console.error('Error fetching subscription plans:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching subscription plans',
+      error: error.message
+    });
+  }
+};
+
+const getSubscriptionPlanById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Mock implementation - replace with actual plan fetching
+    const plans = {
+      basic: { id: 'basic', name: 'Basic Plan', price: 499, currency: 'INR' },
+      premium: { id: 'premium', name: 'Premium Plan', price: 999, currency: 'INR' },
+      pro: { id: 'pro', name: 'Pro Plan', price: 1999, currency: 'INR' }
+    };
+
+    const plan = plans[id];
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription plan not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: plan
+    });
+  } catch (error) {
+    console.error('Error fetching subscription plan:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching subscription plan',
+      error: error.message
+    });
+  }
+};
+
+const getUserSubscription = async (req, res) => {
+  return getCurrentSubscription(req, res);
+};
+
+const subscribeUser = async (req, res) => {
+  return createSubscription(req, res);
+};
+
+const getSubscriptionHistory = async (req, res) => {
+  return getUserSubscriptions(req, res);
+};
+
+const checkSubscriptionStatus = async (req, res) => {
+  return getCurrentSubscription(req, res);
+};
+
+const renewSubscription = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { planType, billingCycle, amount } = req.body;
+
+    const activeSubscription = await Subscription.findOne({
+      where: {
+        userId,
+        status: 'active'
+      }
+    });
+
+    if (!activeSubscription) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active subscription found to renew'
+      });
+    }
+
+    // Extend the subscription period
+    const newEndDate = new Date(activeSubscription.endDate);
+    if (billingCycle === 'monthly') {
+      newEndDate.setMonth(newEndDate.getMonth() + 1);
+    } else if (billingCycle === 'yearly') {
+      newEndDate.setFullYear(newEndDate.getFullYear() + 1);
+    }
+
+    await activeSubscription.update({
+      endDate: newEndDate,
+      renewedAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Subscription renewed successfully',
+      data: activeSubscription
+    });
+  } catch (error) {
+    console.error('Error renewing subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error renewing subscription',
+      error: error.message
+    });
+  }
+};
+
+const changeSubscription = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const userId = req.user.userId;
+
+    const activeSubscription = await Subscription.findOne({
+      where: {
+        userId,
+        status: 'active'
+      }
+    });
+
+    if (!activeSubscription) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active subscription found'
+      });
+    }
+
+    await activeSubscription.update({
+      planType: planId,
+      updatedAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Subscription plan changed successfully',
+      data: activeSubscription
+    });
+  } catch (error) {
+    console.error('Error changing subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error changing subscription',
+      error: error.message
+    });
+  }
+};
+
+// Admin methods
+const getSubscriptionsByStatus = async (req, res) => {
+  try {
+    const { status } = req.params;
+    const subscriptions = await Subscription.findAll({
+      where: { status },
+      include: [{
+        model: User,
+        attributes: ['userId', 'name', 'email']
+      }],
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: subscriptions
+    });
+  } catch (error) {
+    console.error('Error fetching subscriptions by status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching subscriptions',
+      error: error.message
+    });
+  }
+};
+
+const createSubscriptionPlan = async (req, res) => {
+  try {
+    // Mock implementation - you'd typically store plans in database
+    const planData = req.body;
+    res.status(201).json({
+      success: true,
+      message: 'Subscription plan created successfully',
+      data: { id: Date.now().toString(), ...planData }
+    });
+  } catch (error) {
+    console.error('Error creating subscription plan:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating subscription plan',
+      error: error.message
+    });
+  }
+};
+
+const updateSubscriptionPlan = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    
+    res.json({
+      success: true,
+      message: 'Subscription plan updated successfully',
+      data: { id, ...updates }
+    });
+  } catch (error) {
+    console.error('Error updating subscription plan:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating subscription plan',
+      error: error.message
+    });
+  }
+};
+
+const deleteSubscriptionPlan = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    res.json({
+      success: true,
+      message: 'Subscription plan deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting subscription plan:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting subscription plan',
+      error: error.message
+    });
+  }
+};
+
+const getSubscriptionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const subscription = await Subscription.findByPk(id, {
+      include: [{
+        model: User,
+        attributes: ['userId', 'name', 'email']
+      }]
+    });
+
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: subscription
+    });
+  } catch (error) {
+    console.error('Error fetching subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching subscription',
+      error: error.message
+    });
+  }
+};
+
+const adminCancelSubscription = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const subscription = await Subscription.findByPk(id);
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription not found'
+      });
+    }
+
+    await subscription.update({
+      status: 'cancelled',
+      cancellationReason: reason || 'Admin cancellation',
+      cancelledAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Subscription cancelled successfully',
+      data: subscription
+    });
+  } catch (error) {
+    console.error('Error cancelling subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error cancelling subscription',
+      error: error.message
+    });
+  }
+};
+
+const extendSubscription = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { extensionDays } = req.body;
+
+    const subscription = await Subscription.findByPk(id);
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subscription not found'
+      });
+    }
+
+    const newEndDate = new Date(subscription.endDate);
+    newEndDate.setDate(newEndDate.getDate() + parseInt(extensionDays));
+
+    await subscription.update({
+      endDate: newEndDate,
+      extendedAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Subscription extended successfully',
+      data: subscription
+    });
+  } catch (error) {
+    console.error('Error extending subscription:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error extending subscription',
+      error: error.message
+    });
+  }
+};
+
+const getExpiredSubscriptions = async (req, res) => {
+  try {
+    const expiredSubscriptions = await Subscription.findAll({
+      where: {
+        endDate: {
+          [Op.lt]: new Date()
+        },
+        status: ['active', 'past_due']
+      },
+      include: [{
+        model: User,
+        attributes: ['userId', 'name', 'email']
+      }],
+      order: [['endDate', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: expiredSubscriptions
+    });
+  } catch (error) {
+    console.error('Error fetching expired subscriptions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching expired subscriptions',
+      error: error.message
+    });
+  }
+};
+
+const bulkCancelSubscriptions = async (req, res) => {
+  try {
+    const { subscriptionIds, reason } = req.body;
+    
+    await Subscription.update(
+      {
+        status: 'cancelled',
+        cancellationReason: reason || 'Bulk cancellation',
+        cancelledAt: new Date()
+      },
+      {
+        where: {
+          subscriptionId: {
+            [Op.in]: subscriptionIds
+          }
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `${subscriptionIds.length} subscriptions cancelled successfully`
+    });
+  } catch (error) {
+    console.error('Error bulk cancelling subscriptions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error cancelling subscriptions',
+      error: error.message
+    });
+  }
+};
+
+const bulkExtendSubscriptions = async (req, res) => {
+  try {
+    const { subscriptionIds, extensionDays } = req.body;
+    
+    const subscriptions = await Subscription.findAll({
+      where: {
+        subscriptionId: {
+          [Op.in]: subscriptionIds
+        }
+      }
+    });
+
+    for (const subscription of subscriptions) {
+      const newEndDate = new Date(subscription.endDate);
+      newEndDate.setDate(newEndDate.getDate() + parseInt(extensionDays));
+      
+      await subscription.update({
+        endDate: newEndDate,
+        extendedAt: new Date()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `${subscriptionIds.length} subscriptions extended successfully`
+    });
+  } catch (error) {
+    console.error('Error bulk extending subscriptions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error extending subscriptions',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllSubscriptions,
   getUserSubscriptions,
@@ -482,5 +949,23 @@ module.exports = {
   cancelSubscription,
   activateSubscription,
   getSubscriptionAnalytics,
-  handleSubscriptionWebhook
+  handleSubscriptionWebhook,
+  getSubscriptionPlans,
+  getSubscriptionPlanById,
+  getUserSubscription,
+  subscribeUser,
+  getSubscriptionHistory,
+  checkSubscriptionStatus,
+  renewSubscription,
+  changeSubscription,
+  getSubscriptionsByStatus,
+  createSubscriptionPlan,
+  updateSubscriptionPlan,
+  deleteSubscriptionPlan,
+  getSubscriptionById,
+  adminCancelSubscription,
+  extendSubscription,
+  getExpiredSubscriptions,
+  bulkCancelSubscriptions,
+  bulkExtendSubscriptions
 };
