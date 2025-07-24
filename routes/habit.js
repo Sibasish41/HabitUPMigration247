@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, param } = require('express-validator');
+const { body, param, query } = require('express-validator');
 const habitController = require('../controllers/habitController');
 const { authorize } = require('../middleware/auth');
 const router = express.Router();
@@ -19,8 +19,19 @@ router.get('/:habitId', [
 // Get habit progress/statistics
 router.get('/:habitId/progress', [
   param('habitId').isInt().withMessage('Habit ID must be an integer'),
+  query('days').optional().isInt({ min: 1, max: 365 }).withMessage('Days must be between 1 and 365'),
   requireHabitAccess
 ], habitController.getHabitProgress);
+
+// Get habit analytics and insights
+router.get('/:habitId/analytics', [
+  param('habitId').isInt().withMessage('Habit ID must be an integer'),
+  query('timeRange').optional().isInt({ min: 7, max: 365 }).withMessage('Time range must be between 7 and 365 days'),
+  requireHabitAccess
+], habitController.getHabitAnalytics);
+
+// Get habit suggestions for user
+router.get('/suggestions/for-me', requireHabitAccess, habitController.getHabitSuggestions);
 
 // Create new habit
 router.post('/', [

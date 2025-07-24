@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
 const rateLimit = require('express-rate-limit');
+const http = require('http');
+const socketHandler = require('./utils/socketHandler');
 
 // Load environment variables
 dotenv.config();
@@ -20,6 +22,7 @@ const meetingRoutes = require('./routes/meeting');
 const messageRoutes = require('./routes/message');
 const feedbackRoutes = require('./routes/feedback');
 const dailyThoughtRoutes = require('./routes/dailyThought');
+const systemSettingsRoutes = require('./routes/systemSettings');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -31,6 +34,7 @@ const { seedPermissions } = require('./utils/seedPermissions');
 const ScheduledTasks = require('./utils/scheduledTasks');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // Rate limiting
@@ -75,6 +79,7 @@ app.use('/api/meeting', authenticateToken, meetingRoutes);
 app.use('/api/message', authenticateToken, messageRoutes);
 app.use('/api/feedback', authenticateToken, feedbackRoutes);
 app.use('/api/daily-thought', authenticateToken, dailyThoughtRoutes);
+app.use('/api/system-settings', systemSettingsRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -99,11 +104,15 @@ const startServer = async () => {
     // Initialize scheduled tasks
     ScheduledTasks.init();
     
+    // Initialize Socket.IO
+    socketHandler.initialize(server);
+    
     // Start server
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 HabitUP Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🌐 Health check: http://localhost:${PORT}/health`);
+      console.log(`🔌 Socket.IO ready for real-time connections`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

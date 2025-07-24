@@ -21,7 +21,7 @@ const PasswordResetToken = sequelize.define('PasswordResetToken', {
     allowNull: false,
     unique: true
   },
-  expiryDate: {
+  expiresAt: {
     type: DataTypes.DATE,
     allowNull: false
   },
@@ -45,7 +45,7 @@ const PasswordResetToken = sequelize.define('PasswordResetToken', {
       fields: ['userId']
     },
     {
-      fields: ['expiryDate']
+      fields: ['expiresAt']
     }
   ]
 });
@@ -57,7 +57,7 @@ PasswordResetToken.generateToken = () => {
 
 // Instance method to check if token is valid
 PasswordResetToken.prototype.isValid = function() {
-  return !this.isUsed && new Date() < new Date(this.expiryDate);
+  return !this.isUsed && new Date() < new Date(this.expiresAt);
 };
 
 module.exports = PasswordResetToken;
